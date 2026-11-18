@@ -1,64 +1,13 @@
 zerops:
   - setup: node
     run:
-      # Zerops Docker services run in a VM and require host networking for
-      # direct TCP/UDP access and WireGuard.
       base: docker@latest
+
       prepareCommands:
         - docker pull ghcr.io/pasarguard/node:v0.5.7
-      start: |
-        set -eu
-        DATA_DIR=/var/lib/pg-node
-        CERT_DIR="$DATA_DIR/certs"
-        mkdir -p "$CERT_DIR" "$DATA_DIR/generated"
 
-        # The node requires TLS files. Keep them on the VM disk so a restart
-        # does not regenerate them. Set PG_NODE_CERT_CN to your public IP or
-        # DNS name in Zerops if clients validate the certificate name.
-        if [ ! -s "$CERT_DIR/ssl_cert.pem" ] || [ ! -s "$CERT_DIR/ssl_key.pem" ]; then
-          CERT_CN="${PG_NODE_CERT_CN:-localhost}"
-          case "$CERT_CN" in
-            *[!0-9.]*|*.*.*.*) SAN="DNS:$CERT_CN" ;;
-            *) SAN="IP:$CERT_CN" ;;
-          esac
-          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
-            -keyout "$CERT_DIR/ssl_key.pem" \
-            -out "$CERT_DIR/ssl_cert.pem" -days 3650 -nodes \
-            -subj "/CN=$CERT_CN" \
-            -addext "subjectAltName=$SAN"
-          chmod 600 "$CERT_DIR/ssl_key.pem"
-          chmod 644 "$CERT_DIR/ssl_cert.pem"
-        fi
+      start: docker run --rm --network=host --cap-add=NET_ADMIN -e API_KEY -e NODE_HOST -e SERVICE_PORT -e SERVICE_PROTOCOL -e SSL_CERT_FILE -e SSL_KEY_FILE -e GENERATED_CONFIG_PATH -v /var/lib/pg-node:/var/lib/pg-node ghcr.io/pasarguard/node:v0.5.7
 
-        exec docker run --rm \
-          --network=host \
-          --cap-add=NET_ADMIN \
-          --name=pasarguard-node \
-          -v "$DATA_DIR:/var/lib/pg-node" \
-          -e API_KEY \
-          -e NODE_HOST \
-          -e SERVICE_PORT \
-          -e SERVICE_PROTOCOL \
-          -e DEBUG \
-          -e SSL_CERT_FILE \
-          -e SSL_KEY_FILE \
-          -e GENERATED_CONFIG_PATH \
-          -e PG_NODE_WG_HOST_ROUTING \
-          -e PG_NODE_WG_NAT_OUTPUT_INTERFACE \
-          -e PG_NODE_WG_NAT_EGRESS_ONLY \
-          -e PG_NODE_WG_NAT_DISABLE \
-          -e PG_NODE_WG_ROUTE_TABLE \
-          -e PG_NODE_WG_ROUTE_OUT_INTERFACE \
-          ghcr.io/pasarguard/node:v0.5.7
-      envVariables:
-        NODE_HOST: 0.0.0.0
-        SERVICE_PORT: "62050"
-        SERVICE_PROTOCOL: grpc
-        SSL_CERT_FILE: /var/lib/pg-node/certs/ssl_cert.pem
-        SSL_KEY_FILE: /var/lib/pg-node/certs/ssl_key.pem
-        GENERATED_CONFIG_PATH: /var/lib/pg-node/generated
-        PG_NODE_WG_HOST_ROUTING: "1"
-        DEBUG: "false"
       ports:
         - port: 62050
           protocol: TCP
